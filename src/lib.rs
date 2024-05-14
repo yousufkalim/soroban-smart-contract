@@ -224,10 +224,6 @@ impl CrowdFund {
         let launchpad_amount = (real_amount * LAUNCHPAD_PER) / total_percentage;
         let dev_amount = (real_amount * DEV_PER) / total_percentage;
 
-        log!(&env, "artist_amount: {}", artist_amount);
-        log!(&env, "launchpad_amount: {}", launchpad_amount);
-        log!(&env, "dev_amount: {}", dev_amount);
-
         if artist_amount == 0 || launchpad_amount == 0 || dev_amount == 0 {
             return Err(Error::LowAmountForSplitter);
         }
