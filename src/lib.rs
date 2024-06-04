@@ -51,8 +51,7 @@ const DEV_PER: i128 = 3;
 pub enum DataKey {
     DevAccount,
     LaunchpadAccount,
-    ArtyToken,
-    TokenAdmin,
+    Admin,
 }
 
 #[contract]
@@ -64,12 +63,11 @@ impl CrowdFund {
         env: Env,
         dev_acc: Address,
         launchpad_acc: Address,
-        arty_token: Address,
-        token_admin: Address,
+        admin: Address,
     ) {
-        token_admin.require_auth();
+        admin.require_auth();
         assert!(
-            !env.storage().instance().has(&DataKey::TokenAdmin),
+            !env.storage().instance().has(&DataKey::Admin),
             "already initialized"
         );
 
@@ -79,14 +77,11 @@ impl CrowdFund {
             .set(&DataKey::LaunchpadAccount, &launchpad_acc);
         env.storage()
             .instance()
-            .set(&DataKey::ArtyToken, &arty_token);
-        env.storage()
-            .instance()
-            .set(&DataKey::TokenAdmin, &token_admin);
+            .set(&DataKey::Admin, &admin);
 
         env.events().publish(
             (symbol_short!("INIT"), symbol_short!("accounts")),
-            token_admin,
+            admin,
         );
     }
 
@@ -249,19 +244,6 @@ impl CrowdFund {
         client.transfer(&donor_address, &dev_acc, &dev_amount);
         client.transfer(&donor_address, &launchpad_acc, &launchpad_amount);
 
-        // Reward ARTY tokens to Donor account from Admin account
-        let arty_token = Self::get_arty_token(env.clone());
-
-        let client_admin = token::Client::new(&env.clone(), &arty_token);
-
-        let reward_amount = amount * 100000000;
-
-        client_admin.transfer(
-            &env.current_contract_address(),
-            &donor_address,
-            &reward_amount,
-        );
-
         // Save data
         check_campaign.amount_collected = total;
         env.storage()
@@ -300,17 +282,10 @@ impl CrowdFund {
             .expect("none")
     }
 
-    pub fn get_arty_token(e: Env) -> Address {
+    pub fn get_admin(e: Env) -> Address {
         e.storage()
             .instance()
-            .get::<DataKey, Address>(&DataKey::ArtyToken)
-            .expect("none")
-    }
-
-    pub fn get_token_admin(e: Env) -> Address {
-        e.storage()
-            .instance()
-            .get::<DataKey, Address>(&DataKey::TokenAdmin)
+            .get::<DataKey, Address>(&DataKey::Admin)
             .expect("none")
     }
 }
