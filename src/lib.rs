@@ -8,59 +8,53 @@ use soroban_sdk::{
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    DeadlineShouldBeFuture = 1,
-    CampaignNotExist = 2,
+    DiscountExpired = 1,
+    ProductNotExist = 2,
     AmountMustNonZero = 3,
     TargetReached = 4,
     AmountExceedTargetLimit = 5,
-    CampaignAlreadyExist = 6,
-    IdCampaignMustNonZero = 7,
+    ProductAlreadyExist = 6,
+    IdProductMustNonZero = 7,
     LowAmountForSplitter = 8,
+    ExpiryShouldBeFuture = 9
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Campaign {
+pub struct Product {
     pub id: u32,
-    pub owner: Address,
     pub title: String,
     pub description: String,
-    // pub short_description: String,
     pub category: String,
-    pub main_location: String,
-    // pub temp_location: String,
-    // pub tag: String,
-    pub metadata: String,
-    pub target: i128,
-    pub deadline: u64,
-    pub amount_collected: i128,
-    pub status: bool,
+    pub expiry: u64,
     pub image: String,
-    pub donators: Vec<Address>,
-    pub donations: Vec<i128>,
+    pub price: i128,
+    pub remaining: i128
 }
 
-const NO_OF_CAMPAIGNS: Symbol = symbol_short!("CAMPAIGNS");
+const NO_OF_PRODUCTS: Symbol = symbol_short!("PRODUCTS");
 
-const ARTIST_PER: i128 = 95;
-const LAUNCHPAD_PER: i128 = 2;
-const DEV_PER: i128 = 3;
+const RESERVE_PER: i128 = 60;
+const LAUNCHPAD_PER: i128 = 10;
+const DEV_PER: i128 = 30;
 
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
+    ReserveAccount,
     DevAccount,
     LaunchpadAccount,
     Admin,
 }
 
 #[contract]
-pub struct CrowdFund;
+pub struct Marketplace;
 
 #[contractimpl]
-impl CrowdFund {
+impl Marketplace {
     pub fn initialize(
         env: Env,
+        reserve_acc: Address,
         dev_acc: Address,
         launchpad_acc: Address,
         admin: Address,
@@ -71,6 +65,7 @@ impl CrowdFund {
             "already initialized"
         );
 
+        env.storage().instance().set(&DataKey::ReserveAccount, &reserve_acc);
         env.storage().instance().set(&DataKey::DevAccount, &dev_acc);
         env.storage()
             .instance()
@@ -85,187 +80,154 @@ impl CrowdFund {
         );
     }
 
-    pub fn create_campaign(
+    pub fn create_product(
         env: Env,
-        owner_addr: Address,
-        title_cmp: String,
-        desc_cmp: String,
-        // short_desc_cmp: String,
-        category_cmp: String,
-        main_location_cmp: String,
-        // temp_location_cmp: String,
-        // tag_cmp: String,
-        metadata_cmp: String,
-        image_cmp: String,
-        target_cmp: i128,
-        deadline_cmp: u64,
-    ) -> Result<Campaign, Error> {
-        owner_addr.require_auth();
-
-        if deadline_cmp < env.ledger().timestamp() {
-            return Err(Error::DeadlineShouldBeFuture);
+        product_title: String,
+        product_description: String,
+        product_category: String,
+        product_expiry: u64,
+        product_image: String,
+        product_price: i128,
+        product_target: i128
+    ) -> Result<Product, Error> {
+        if product_expiry < env.ledger().timestamp() {
+            return Err(Error::ExpiryShouldBeFuture);
         }
 
-        let mut count_id: u32 = env.storage().instance().get(&NO_OF_CAMPAIGNS).unwrap_or(0); // If no value set, assume 0.
+        let mut count_id: u32 = env.storage().instance().get(&NO_OF_PRODUCTS).unwrap_or(0); // If no value set, assume 0.
 
         count_id += 1;
 
-        let check_campaign = Self::get_campaign(env.clone(), count_id.clone());
+        let check_product = Self::get_product(env.clone(), count_id.clone());
 
-        if check_campaign.id == count_id {
-            return Err(Error::CampaignAlreadyExist);
+        if check_product.id == count_id {
+            return Err(Error::ProductAlreadyExist);
         }
         if count_id <= 0 {
-            return Err(Error::IdCampaignMustNonZero);
+            return Err(Error::IdProductMustNonZero);
         }
 
-        let campaign = Campaign {
+        let product = Product {
             id: count_id,
-            owner: owner_addr,
-            title: title_cmp,
-            description: desc_cmp,
-            target: target_cmp,
-            deadline: deadline_cmp,
-            category: category_cmp,
-            main_location: main_location_cmp,
-            // temp_location: temp_location_cmp,
-            // tag: tag_cmp,
-            metadata: metadata_cmp,
-            amount_collected: 0,
-            status: true,
-            image: image_cmp,
-            donators: Vec::new(&env),
-            donations: Vec::new(&env),
+            title: product_title,
+            description: product_description,
+            remaining: product_target,
+            expiry: product_expiry,
+            category: product_category,
+            image: product_image,
+            price: product_price
         };
 
-        env.storage().instance().set(&NO_OF_CAMPAIGNS, &count_id);
-        env.storage().instance().set(&count_id, &campaign);
+        env.storage().instance().set(&NO_OF_PRODUCTS, &count_id);
+        env.storage().instance().set(&count_id, &product);
 
         env.events().publish(
-            (symbol_short!("create"), symbol_short!("campaign")),
+            (symbol_short!("create"), symbol_short!("product")),
             count_id,
         );
 
-        return Ok(campaign);
+        return Ok(product);
     }
 
-    pub fn get_campaigns(env: Env) -> Vec<Campaign> {
-        let mut campaigns = Vec::new(&env);
+    pub fn get_products(env: Env) -> Vec<Product> {
+        let mut products = Vec::new(&env);
 
-        let total_campaigns: u32 = env.storage().instance().get(&NO_OF_CAMPAIGNS).unwrap_or(0);
+        let total_products: u32 = env.storage().instance().get(&NO_OF_PRODUCTS).unwrap_or(0);
 
-        for campaign_id in 1..=total_campaigns {
-            let campaign = Self::get_campaign(env.clone(), campaign_id);
+        for product_id in 1..=total_products {
+            let product = Self::get_product(env.clone(), product_id);
 
-            campaigns.push_back(campaign);
+            products.push_back(product);
         }
 
-        campaigns
+        return products;
     }
 
-    pub fn get_campaign(env: Env, campaign_id: u32) -> Campaign {
-        let campaign: Campaign = env
+    pub fn get_product(env: Env, product_id: u32) -> Product {
+        let product: Product = env
             .storage()
             .instance()
-            .get(&campaign_id)
-            .unwrap_or(Campaign {
+            .get(&product_id)
+            .unwrap_or(Product {
                 id: 0,
-                owner: env.current_contract_address(),
                 title: String::from_str(&env, ""),
                 description: String::from_str(&env, ""),
                 category: String::from_str(&env, ""),
-                main_location: String::from_str(&env, ""),
-                metadata: String::from_str(&env, ""),
-                target: 0,
-                deadline: 0,
-                amount_collected: 20,
-                status: false,
+                remaining: 0,
                 image: String::from_str(&env, ""),
-                donators: Vec::new(&env),
-                donations: Vec::new(&env),
+                price: 0,
+                expiry: 0
             });
 
-        return campaign;
+        return product;
     }
 
-    pub fn donate_to_campaign(
+    pub fn get_discount(
         env: Env,
         id: u32,
-        donor_address: Address,
+        customer_address: Address,
         amount: i128,
         token_id: Address,
     ) -> Result<(i128, i128, i128), Error> {
-        donor_address.require_auth();
+        customer_address.require_auth();
 
         assert!(amount > 0, "amount must be positive");
 
-        let mut check_campaign = Self::get_campaign(env.clone(), id.clone());
+        let mut check_product = Self::get_product(env.clone(), id.clone());
 
-        if check_campaign.id != id || id == 0 {
-            return Err(Error::CampaignNotExist);
+        if check_product.id != id || id == 0 {
+            return Err(Error::ProductNotExist);
         }
         if amount <= 0 {
             return Err(Error::AmountMustNonZero);
         }
-        if check_campaign.amount_collected == check_campaign.target {
+        if check_product.remaining <= 0 {
             return Err(Error::TargetReached);
         }
 
         log!(&env, "amount: {}", amount);
-        let total_percentage = ARTIST_PER + LAUNCHPAD_PER + DEV_PER;
+        let total_percentage = RESERVE_PER + LAUNCHPAD_PER + DEV_PER;
         let real_amount = amount * 10000000;
         // Payment splitting and calculating the percentage
-        let artist_amount = (real_amount * ARTIST_PER) / total_percentage;
+        let reserve_amount = (real_amount * RESERVE_PER) / total_percentage;
         let launchpad_amount = (real_amount * LAUNCHPAD_PER) / total_percentage;
         let dev_amount = (real_amount * DEV_PER) / total_percentage;
 
-        if artist_amount == 0 || launchpad_amount == 0 || dev_amount == 0 {
+        if reserve_amount == 0 || launchpad_amount == 0 || dev_amount == 0 {
             return Err(Error::LowAmountForSplitter);
         }
 
-        let collected = check_campaign.amount_collected.clone();
-        let total = collected + amount.clone();
-
-        if total > check_campaign.target {
-            return Err(Error::AmountExceedTargetLimit);
-        }
-
-        check_campaign.donators.push_front(donor_address.clone());
-        check_campaign.donations.push_front(amount);
-
         // get accounts
+        let reserve_acc = Self::get_reserve_acc(env.clone());
         let dev_acc = Self::get_dev_acc(env.clone());
         let launchpad_acc = Self::get_launchpad_acc(env.clone());
 
         // transfer splitted Tokens to artist, dev, launchpad accounts
         let client: token::TokenClient = token::Client::new(&env.clone(), &token_id);
 
-        client.transfer(&donor_address, &check_campaign.owner, &artist_amount);
-        client.transfer(&donor_address, &dev_acc, &dev_amount);
-        client.transfer(&donor_address, &launchpad_acc, &launchpad_amount);
+        client.transfer(&customer_address, &reserve_acc, &reserve_amount);
+        client.transfer(&customer_address, &dev_acc, &dev_amount);
+        client.transfer(&customer_address, &launchpad_acc, &launchpad_amount);
 
         // Save data
-        check_campaign.amount_collected = total;
+        check_product.remaining -= 1;
         env.storage()
             .instance()
-            .set(&check_campaign.id, &check_campaign);
+            .set(&check_product.id, &check_product);
 
         env.events().publish(
-            (symbol_short!("donate"), symbol_short!("campaign")),
-            check_campaign.id,
+            (symbol_short!("buy"), symbol_short!("discount")),
+            check_product.id,
         );
 
-        return Ok((artist_amount, launchpad_amount, dev_amount));
+        return Ok((reserve_amount, launchpad_amount, dev_amount));
     }
 
-    pub fn get_donators(env: Env, id: u32) -> Result<Vec<Address>, Error> {
-        let campaign = Self::get_campaign(env.clone(), id.clone());
-
-        if campaign.id != id || id == 0 {
-            return Err(Error::CampaignNotExist);
-        }
-
-        Ok(campaign.donators)
+    pub fn get_reserve_acc(e: Env) -> Address {
+        e.storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::ReserveAccount)
+            .expect("none")
     }
 
     pub fn get_dev_acc(e: Env) -> Address {
@@ -293,4 +255,248 @@ impl CrowdFund {
 #[cfg(test)]
 mod test;
 
-mod testutils;
+    // #[test]
+    // fn test_create_product() {
+    //     let env = Env::default();
+    //     let admin = Address::generate(&env);
+    //     Address::generate(&env);
+    //     let title = String::from_str(&env, "Product 1");
+    //     let description = String::from_str(&env, "Description 1");
+    //     let category = String::from_str(&env, "Category 1");
+    //     let expiry = env.ledger().timestamp() + 10000;
+    //     let image = String::from_str(&env, "image.png");
+    //     let price = 1000;
+    //     let target = 10;
+    //
+    //     Marketplace::initialize(env.clone(), admin.clone(), admin.clone(), admin.clone(), admin.clone());
+    //     let product = Marketplace::create_product(
+    //         env.clone(),
+    //         title.clone(),
+    //         description.clone(),
+    //         category.clone(),
+    //         expiry,
+    //         image.clone(),
+    //         price,
+    //         target
+    //     ).unwrap();
+    //
+    //     assert_eq!(product.id, 1);
+    //     assert_eq!(product.title, title);
+    //     assert_eq!(product.description, description);
+    //     assert_eq!(product.category, category);
+    //     assert_eq!(product.expiry, expiry);
+    //     assert_eq!(product.image, image);
+    //     assert_eq!(product.price, price);
+    //     assert_eq!(product.remaining, target);
+    // }
+    //
+    // #[test]
+    // fn test_get_product() {
+    //     let env = Env::default();
+    //     let admin = Address::generate(&env);
+    //     let title = String::from_str(&env, "Product 1");
+    //     let description = String::from_str(&env, "Description 1");
+    //     let category = String::from_str(&env, "Category 1");
+    //     let expiry = env.ledger().timestamp() + 10000;
+    //     let image = String::from_str(&env, "image.png");
+    //     let price = 1000;
+    //     let target = 10;
+    //
+    //     Marketplace::initialize(env.clone(), admin.clone(), admin.clone(), admin.clone(), admin.clone());
+    //     Marketplace::create_product(
+    //         env.clone(),
+    //         title.clone(),
+    //         description.clone(),
+    //         category.clone(),
+    //         expiry,
+    //         image.clone(),
+    //         price,
+    //         target
+    //     ).unwrap();
+    //
+    //     let product = Marketplace::get_product(env.clone(), 1);
+    //     assert_eq!(product.id, 1);
+    //     assert_eq!(product.title, title);
+    //     assert_eq!(product.description, description);
+    //     assert_eq!(product.category, category);
+    //     assert_eq!(product.expiry, expiry);
+    //     assert_eq!(product.image, image);
+    //     assert_eq!(product.price, price);
+    //     assert_eq!(product.remaining, target);
+    // }
+    //
+    // #[test]
+    // fn test_get_products() {
+    //     let env = Env::default();
+    //     let admin = Address::generate(&env);
+    //     let title1 = String::from_str(&env, "Product 1");
+    //     let description1 = String::from_str(&env, "Description 1");
+    //     let category1 = String::from_str(&env, "Category 1");
+    //     let expiry1 = env.ledger().timestamp() + 10000;
+    //     let image1 = String::from_str(&env, "image1.png");
+    //     let price1 = 1000;
+    //     let target1 = 10;
+    //
+    //     let title2 = String::from_str(&env, "Product 2");
+    //     let description2 = String::from_str(&env, "Description 2");
+    //     let category2 = String::from_str(&env, "Category 2");
+    //     let expiry2 = env.ledger().timestamp() + 20000;
+    //     let image2 = String::from_str(&env, "image2.png");
+    //     let price2 = 2000;
+    //     let target2 = 20;
+    //
+    //     Marketplace::initialize(env.clone(), admin.clone(), admin.clone(), admin.clone(), admin.clone());
+    //     Marketplace::create_product(
+    //         env.clone(),
+    //         title1.clone(),
+    //         description1.clone(),
+    //         category1.clone(),
+    //         expiry1,
+    //         image1.clone(),
+    //         price1,
+    //         target1
+    //     ).unwrap();
+    //     Marketplace::create_product(
+    //         env.clone(),
+    //         title2.clone(),
+    //         description2.clone(),
+    //         category2.clone(),
+    //         expiry2,
+    //         image2.clone(),
+    //         price2,
+    //         target2
+    //     ).unwrap();
+    //
+    //     let products = Marketplace::get_products(env.clone());
+    //     assert_eq!(products.len(), 2);
+    //     assert_eq!(products.get(0).unwrap().title, title1);
+    //     assert_eq!(products.get(1).unwrap().title, title2);
+    // }
+    //
+    // #[test]
+    // fn test_get_discount() {
+    //     let env = Env::default();
+    //     let admin = Address::generate(&env);
+    //     let customer = Address::generate(&env);
+    //     let title = String::from_str(&env, "Product 1");
+    //     let description = String::from_str(&env, "Description 1");
+    //     let category = String::from_str(&env, "Category 1");
+    //     let expiry = env.ledger().timestamp() + 10000;
+    //     let image = String::from_str(&env, "image.png");
+    //     let price = 1000;
+    //     let target = 10;
+    //     let amount = 1;
+    //     let token_id = Address::generate(&env);
+    //
+    //     Marketplace::initialize(env.clone(), admin.clone(), admin.clone(), admin.clone(), admin.clone());
+    //     Marketplace::create_product(
+    //         env.clone(),
+    //         title.clone(),
+    //         description.clone(),
+    //         category.clone(),
+    //         expiry,
+    //         image.clone(),
+    //         price,
+    //         target
+    //     ).unwrap();
+    //
+    //     let (reserve_amount, launchpad_amount, dev_amount) = Marketplace::get_discount(
+    //         env.clone(),
+    //         1,
+    //         customer.clone(),
+    //         amount,
+    //         token_id.clone()
+    //     ).unwrap();
+    //
+    //     let total_amount = amount * 10000000;
+    //     let expected_reserve_amount = (total_amount * RESERVE_PER) / (RESERVE_PER + LAUNCHPAD_PER + DEV_PER);
+    //     let expected_launchpad_amount = (total_amount * LAUNCHPAD_PER) / (RESERVE_PER + LAUNCHPAD_PER + DEV_PER);
+    //     let expected_dev_amount = (total_amount * DEV_PER) / (RESERVE_PER + LAUNCHPAD_PER + DEV_PER);
+    //
+    //     assert_eq!(reserve_amount, expected_reserve_amount);
+    //     assert_eq!(launchpad_amount, expected_launchpad_amount);
+    //     assert_eq!(dev_amount, expected_dev_amount);
+    //
+    //     let product = Marketplace::get_product(env.clone(), 1);
+    //     assert_eq!(product.remaining, target - 1);
+    // }
+    //
+    // #[test]
+    // #[should_panic(expected = "already initialized")]
+    // fn test_initialize_twice() {
+    //     let env = Env::default();
+    //     let admin = Address::generate(&env);
+    //     let reserve_acc = Address::generate(&env);
+    //     let dev_acc = Address::generate(&env);
+    //     let launchpad_acc = Address::generate(&env);
+    //
+    //     Marketplace::initialize(env.clone(), reserve_acc.clone(), dev_acc.clone(), launchpad_acc.clone(), admin.clone());
+    //     Marketplace::initialize(env.clone(), reserve_acc, dev_acc, launchpad_acc, admin);
+    // }
+    //
+    // #[test]
+    // fn test_create_product_with_past_expiry() {
+    //     let env = Env::default();
+    //     let admin = Address::generate(&env);
+    //     let title = String::from_str(&env, "Product 1");
+    //     let description = String::from_str(&env, "Description 1");
+    //     let category = String::from_str(&env, "Category 1");
+    //     let expiry = env.ledger().timestamp() - 10000;
+    //     let image = String::from_str(&env, "image.png");
+    //     let price = 1000;
+    //     let target = 10;
+    //
+    //     Marketplace::initialize(env.clone(), admin.clone(), admin.clone(), admin.clone(), admin.clone());
+    //     let result = Marketplace::create_product(
+    //         env.clone(),
+    //         title.clone(),
+    //         description.clone(),
+    //         category.clone(),
+    //         expiry,
+    //         image.clone(),
+    //         price,
+    //         target
+    //     );
+    //
+    //     assert_eq!(result, Err(Error::ExpiryShouldBeFuture));
+    // }
+    //
+    // #[test]
+    // fn test_get_discount_with_zero_amount() {
+    //     let env = Env::default();
+    //     let admin = Address::generate(&env);
+    //     let customer = Address::generate(&env);
+    //     let title = String::from_str(&env, "Product 1");
+    //     let description = String::from_str(&env, "Description 1");
+    //     let category = String::from_str(&env, "Category 1");
+    //     let expiry = env.ledger().timestamp() + 10000;
+    //     let image = String::from_str(&env, "image.png");
+    //     let price = 1000;
+    //     let target = 10;
+    //     let amount = 0;
+    //     let token_id = Address::generate(&env);
+    //
+    //     Marketplace::initialize(env.clone(), admin.clone(), admin.clone(), admin.clone(), admin.clone());
+    //     Marketplace::create_product(
+    //         env.clone(),
+    //         title.clone(),
+    //         description.clone(),
+    //         category.clone(),
+    //         expiry,
+    //         image.clone(),
+    //         price,
+    //         target
+    //     ).unwrap();
+    //
+    //     let result = Marketplace::get_discount(
+    //         env.clone(),
+    //         1,
+    //         customer.clone(),
+    //         amount,
+    //         token_id.clone()
+    //     );
+    //
+    //     assert_eq!(result, Err(Error::AmountMustNonZero));
+    // }
+// }
+
