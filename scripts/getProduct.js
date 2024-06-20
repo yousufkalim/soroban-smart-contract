@@ -1,22 +1,13 @@
-const { promisify } = require("util");
-// const {  } = require("@stellar/stellar-sdk");
-const { exec } = require("child_process");
+require("dotenv").config()
 
 const { Contract, SorobanRpc, TransactionBuilder, Networks,
-    BASE_FEE, 
+    BASE_FEE,
     Keypair, Address,  nativeToScVal,
     xdr} = require("stellar-sdk");
-const execute = promisify(exec);
 
-async function exe(command) {
-    let { stdout } = await execute(command, { stdio: "inherit" });
-    return stdout;
-};
+let rpcUrl = process.env.RPC_URL;
 
-let rpcUrl = "https://soroban-testnet.stellar.org:443"
-
-let contractAddress = 'CAEAXVLXUNPPWWICCCUZEU7CELSUBE6GXDHAE6UBJUGTQ6UQPCOLDEW6'
-//let contractAddress = 'CCYZ6YOAPTK4LDC45TXAGPJTFKHY6M6RKY4AXK3NHNTQB7W6FNNVKPHZ'
+let contractAddress = process.env.SMART_CONTRACT;
 
 let params = {
     fee: BASE_FEE,
@@ -24,7 +15,7 @@ let params = {
 }
 
 async function contractInt(functName, values) {
-    const kp = Keypair.fromSecret("SAY6LXJJL6S2AUFYVFIWH7LMPNFIYU5FUVAPYH7IU5QZ74KQN6M722JG");
+    const kp = Keypair.fromSecret(process.env.ADMIN_SECRET_KEY);
     const caller = kp.publicKey();
     const provider = new SorobanRpc.Server(rpcUrl, { allowHttp: true });
     const sourceAccount = await provider.getAccount(caller);
